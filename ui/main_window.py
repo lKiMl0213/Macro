@@ -5,6 +5,8 @@ from .icons import ICONS
 from .tooltips import ToolTip
 from .statusbar import StatusBar
 from .editor_panel import EditorPanel
+from .timeline_panel import TimelinePanel
+from .properties_panel import PropertiesPanel
 from .sections_recording import build_recording_section
 from .sections_playback import build_playback_section
 from .sections_files import build_files_section
@@ -36,11 +38,16 @@ class MainWindow:
         self.btn_stop = btn_stop
         self.record_indicator = indicator
 
-        play_frame, btn_play, entry_speed, entry_repeat = build_playback_section(top, self.controller, self.icons, tooltip)
+        play_frame, btn_play, entry_speed, entry_repeat, btn_step, btn_continue, btn_stop_exec = build_playback_section(
+            top, self.controller, self.icons, tooltip
+        )
         play_frame.pack(side=tk.LEFT, padx=6)
         self.btn_play = btn_play
         self.entry_speed = entry_speed
         self.entry_repeat = entry_repeat
+        self.btn_step = btn_step
+        self.btn_continue = btn_continue
+        self.btn_stop_exec = btn_stop_exec
 
         files_frame, btn_save, btn_load, btn_folder = build_files_section(top, self.controller, self.icons, tooltip)
         files_frame.pack(side=tk.LEFT, padx=6)
@@ -150,27 +157,49 @@ class MainWindow:
 
         info_row = ctk.CTkFrame(self.root, fg_color="transparent")
         info_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
-        info_row.columnconfigure(0, weight=1)
-
         info_left = ctk.CTkFrame(info_row, fg_color="transparent")
-        info_left.grid(row=0, column=0, sticky="w")
+        info_left.pack(side=tk.LEFT, padx=4)
         self.lbl_image = ctk.CTkLabel(info_left, textvariable=self.controller.image_var, text_color="#9ca3af")
         self.lbl_image.pack(side=tk.LEFT, padx=4)
         self.lbl_region = ctk.CTkLabel(info_left, textvariable=self.controller.region_var, text_color="#9ca3af")
         self.lbl_region.pack(side=tk.LEFT, padx=12)
 
-        self.editor = EditorPanel(self.root)
-        self.editor.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        main_row = ctk.CTkFrame(self.root, fg_color="transparent")
+        main_row.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        main_row.columnconfigure(1, weight=1)
+        main_row.rowconfigure(0, weight=1)
+
+        self.timeline = TimelinePanel(
+            main_row,
+            on_select=self.controller.on_timeline_select,
+            on_reorder=self.controller.on_timeline_reorder,
+        )
+        self.timeline.grid(row=0, column=0, sticky="nsw", padx=(0, 8))
+
+        self.editor = EditorPanel(
+            main_row,
+            breakpoint_manager=self.controller.breakpoints,
+            on_line_selected=self.controller.on_editor_line_selected,
+            on_text_change=self.controller.on_editor_text_change,
+        )
+        self.editor.grid(row=0, column=1, sticky="nsew")
+
+        self.properties = PropertiesPanel(main_row, on_apply=self.controller.on_properties_apply)
+        self.properties.grid(row=0, column=2, sticky="nse", padx=(8, 0))
 
         self.status_bar = StatusBar(self.root)
         self.status_bar.grid(row=5, column=0, sticky="ew", padx=10, pady=(0, 6))
 
         self.root.bind("<F8>", lambda _e: self.controller.start_recording())
         self.root.bind("<F9>", lambda _e: self.controller.play())
-        self.root.bind("<F10>", lambda _e: self.controller.stop_recording())
+        self.root.bind("<F10>", lambda _e: self.controller.stop_execution())
+        self.root.bind("<F6>", lambda _e: self.controller.step_forward())
         self.root.bind("<Control-e>", lambda _e: self.editor.focus_editor())
 
         self._size_to_content()
+        self._is_recording = False
+        self._is_playing = False
+        self._play_anim_job = None
 
     def _size_to_content(self):
         try:
@@ -184,6 +213,7 @@ class MainWindow:
             pass
 
     def set_recording_state(self, is_recording):
+        self._is_recording = is_recording
         if is_recording:
             self.btn_record.configure(state="disabled")
             self.btn_stop.configure(state="normal")
@@ -193,5 +223,77 @@ class MainWindow:
             self.btn_stop.configure(state="disabled")
             self.record_indicator.configure(text_color="#374151")
 
-    def set_status(self, text):
-        self.status_bar.set(text)
+    def set_playing_state(self, is_playing):
+        self._is_playing = is_playing
+        if is_playing:
+            self.btn_play.configure(state="disabled")
+            self._start_play_anim()
+            self._set_controls_state("disabled", skip=(self.btn_stop_exec,))
+            self.btn_stop_exec.configure(state="normal")
+            self.btn_record.configure(state="disabled")
+            self.btn_stop.configure(state="disabled")
+        else:
+            self.btn_play.configure(state="normal")
+            self._stop_play_anim()
+            self._set_controls_state("normal")
+            if self._is_recording:
+                self.btn_record.configure(state="disabled")
+                self.btn_stop.configure(state="normal")
+            else:
+                self.btn_record.configure(state="normal")
+                self.btn_stop.configure(state="disabled")
+
+    def _set_controls_state(self, state, skip=()):
+        for btn in (
+            self.btn_image,
+            self.btn_capture,
+            self.btn_region,
+            self.btn_clear_region,
+            self.btn_insert_region,
+            self.btn_img_click,
+            self.btn_img_click_any,
+            self.btn_save,
+            self.btn_load,
+            self.btn_folder,
+            self.btn_step,
+            self.btn_continue,
+            self.btn_stop_exec,
+        ):
+            if btn in skip:
+                continue
+            try:
+                btn.configure(state=state)
+            except Exception:
+                pass
+
+    def _start_play_anim(self):
+        self._stop_play_anim()
+        self._play_anim_phase = 0
+
+        def tick():
+            if not self._is_playing:
+                return
+            dots = "." * (self._play_anim_phase % 3 + 1)
+            self.btn_play.configure(text=f"{self.icons['play']} Playing{dots}")
+            self._play_anim_phase += 1
+            self._play_anim_job = self.root.after(450, tick)
+
+        tick()
+
+    def _stop_play_anim(self):
+        if self._play_anim_job:
+            try:
+                self.root.after_cancel(self._play_anim_job)
+            except Exception:
+                pass
+            self._play_anim_job = None
+        self.btn_play.configure(text=f"{self.icons['play']} Play")
+
+    def set_step_state(self, is_step):
+        if is_step:
+            self.btn_step.configure(fg_color="#4f46e5", hover_color="#4338ca")
+        else:
+            self.btn_step.configure(fg_color="#1f2937", hover_color="#374151")
+
+    def set_status(self, text, color=None):
+        self.status_bar.set(text, color=color)

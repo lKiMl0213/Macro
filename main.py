@@ -11,6 +11,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from ui.main_window import MainWindow
+from ui.breakpoint_manager import BreakpointManager
+from ui.step_controller import StepController
+from ui.preview_panel import PreviewPanel
 
 try:
     from pynput import mouse, keyboard
@@ -771,16 +774,21 @@ class MacroApp:
         self.repeat_var = tk.StringVar(value='1')
         self.insert_confidence = 0.9
         self.insert_timeout = 0.5
+        self.breakpoints = BreakpointManager()
 
         self._build_ui()
+        self.preview = PreviewPanel(self.root)
+        self.preview.withdraw()
+        self.step_controller = StepController(self.editor, self.ui.timeline, self.ui.set_status)
+        self.on_editor_text_change()
 
     def _build_ui(self):
         self.ui = MainWindow(self.root, self)
         self.editor = self.ui.editor
 
-    def set_status(self, text):
+    def set_status(self, text, color=None):
         try:
-            self.ui.set_status(text)
+            self.ui.set_status(text, color=color)
         except Exception:
             pass
 
@@ -818,11 +826,143 @@ class MacroApp:
         self._show_root()
         return result['region']
 
+    def _parse_line(self, line):
+        s = line.strip()
+        if not s or s.startswith("#"):
+            return None, []
+        try:
+            parts = shlex.split(s, posix=False)
+        except Exception:
+            parts = s.split()
+        if not parts:
+            return None, []
+        return parts[0].upper(), parts[1:]
+
+    def _command_lines(self, text=None):
+        if text is None:
+            text = self.text_get()
+        lines = text.splitlines()
+        commands = []
+        for i, line in enumerate(lines, start=1):
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            commands.append((i, line))
+        return commands
+
     def text_get(self):
         return self.editor.get_text()
 
     def text_set(self, s):
         self.editor.set_text(s)
+
+    def _insert_text(self, s):
+        self.editor.insert_text(s)
+
+    def on_editor_text_change(self):
+        text = self.text_get()
+        self.step_controller.load_from_text(text)
+        commands = self._command_lines(text)
+        try:
+            self.ui.timeline.refresh(commands)
+        except Exception:
+            pass
+
+    def on_editor_line_selected(self, line_no, source=None):
+        try:
+            line_text = self.editor.get_line(line_no)
+        except Exception:
+            return
+        try:
+            self.ui.timeline.highlight_line(line_no)
+        except Exception:
+            pass
+        try:
+            self.ui.properties.show_for_line(line_no, line_text)
+        except Exception:
+            pass
+        if source in ("mouse", "timeline"):
+            self._maybe_preview(line_text)
+
+    def on_timeline_select(self, line_no):
+        try:
+            self.editor.scroll_to_line(line_no)
+        except Exception:
+            pass
+        self.on_editor_line_selected(line_no, source="timeline")
+
+    def on_timeline_reorder(self, src, target):
+        text = self.text_get()
+        lines = text.splitlines()
+        cmd_indices = [i for i, line in enumerate(lines) if line.strip() and not line.strip().startswith("#")]
+        if not cmd_indices:
+            return
+        if src < 0 or target < 0 or src >= len(cmd_indices) or target >= len(cmd_indices):
+            return
+        cmd_lines = [lines[i] for i in cmd_indices]
+        item = cmd_lines.pop(src)
+        cmd_lines.insert(target, item)
+        cmd_iter = iter(cmd_lines)
+        for idx in cmd_indices:
+            lines[idx] = next(cmd_iter)
+        new_text = "\n".join(lines)
+        self.text_set(new_text)
+        commands = self._command_lines(new_text)
+        if 0 <= target < len(commands):
+            self.on_timeline_select(commands[target][0])
+
+    def on_properties_apply(self, line_no, new_line):
+        try:
+            self.editor.set_line(line_no, new_line)
+        except Exception:
+            pass
+
+    def _maybe_preview(self, line_text):
+        cmd, args = self._parse_line(line_text)
+        if cmd not in ("IMG_CLICK", "IMG_CLICK_ANY", "IMG_WAIT"):
+            return
+        _path, paths, timeout, confidence, _button, scale = Executor._parse_img_args(args)
+        if not paths:
+            return
+        params = []
+        if confidence is not None:
+            params.append(f"confidence={confidence}")
+        if timeout is not None:
+            params.append(f"timeout={timeout:.2f}s")
+        if scale is not None:
+            params.append(f"scale={scale}")
+        self.preview.show(paths, " ".join(params))
+
+    def step_forward(self):
+        text = self.text_get()
+        self.step_controller.load_from_text(text)
+        line = self.step_controller.step()
+        if line:
+            self.editor.scroll_to_line(line)
+            self.ui.set_step_state(True)
+            self.set_status("Step Mode", color="#a78bfa")
+
+    def continue_play(self):
+        if self.step_controller.is_active():
+            self.step_controller.continue_run()
+            self.ui.set_step_state(False)
+        self.play()
+
+    def stop_execution(self):
+        try:
+            self.executor.stop()
+        except Exception:
+            pass
+        self.step_controller.stop()
+        self.ui.set_step_state(False)
+        if getattr(self.recorder, "_running", False):
+            self.stop_recording()
+        else:
+            self.set_status("Stopped.")
+        try:
+            self.ui.set_playing_state(False)
+        except Exception:
+            pass
 
     def start_recording(self):
         txt = self.text_get()
@@ -841,6 +981,7 @@ class MacroApp:
         try:
             self.recorder.start()
             self.ui.set_recording_state(True)
+            self.set_status("Recording...", color="#ef4444")
         except Exception as e:
             messagebox.showerror('Error', f'Could not start recorder: {e}')
 
@@ -872,11 +1013,18 @@ class MacroApp:
         if repeat < 1:
             messagebox.showerror('Erro', 'Repeticoes invalidas')
             return
-        self.set_status(f'Playing at {speed}x, {repeat} times... (ESC to stop)')
+        self.step_controller.stop()
+        self.ui.set_step_state(False)
+        self.ui.set_playing_state(True)
+        self.set_status(f'Playing at {speed}x, {repeat} times... (ESC to stop)', color="#22c55e")
         self.executor.set_default_region(self.search_region)
+        self.executor.reset()
 
         def on_finish():
-            self.root.after(0, lambda: self.set_status('Done playing or stopped.'))
+            def _done():
+                self.ui.set_playing_state(False)
+                self.set_status('Done playing or stopped.')
+            self.root.after(0, _done)
 
         def run():
             if keyboard is not None:
@@ -917,7 +1065,7 @@ class MacroApp:
         parsed = ScriptParser.parse(content)
         evs = ScriptParser.script_to_events(parsed)
         self.store.clear(); self.store.extend(evs)
-        self.set_status(f'Loaded {fname} (events synced)')
+        self.set_status(f'File loaded: {fname}')
 
     def open_capture_folder(self):
         folder = os.path.join(os.getcwd(), 'captures')
@@ -1010,7 +1158,7 @@ class MacroApp:
             return
         x, y, w, h = self.search_region
         line = f"REGION {x} {y} {w} {h}"
-        self.txt.insert(tk.INSERT, line + '\n')
+        self._insert_text(line + '\n')
 
     def _insert_img_command(self, cmd):
         if not self.image_path:
@@ -1023,7 +1171,7 @@ class MacroApp:
         conf = f"{self.insert_confidence:.1f}"
         tout = f"{self.insert_timeout:.1f}s"
         lines.append(f"{cmd} {_quote_arg(self.image_path)} confidence={conf} timeout={tout}")
-        self.txt.insert(tk.INSERT, "\n".join(lines) + '\n')
+        self._insert_text("\n".join(lines) + '\n')
 
     def insert_img_wait(self):
         self._insert_img_command('IMG_WAIT')
@@ -1051,7 +1199,7 @@ class MacroApp:
         conf = f"{self.insert_confidence:.1f}"
         tout = f"{self.insert_timeout:.1f}s"
         lines.append(f"IMG_CLICK_ANY {parts} confidence={conf} timeout={tout}")
-        self.txt.insert(tk.INSERT, "\n".join(lines) + '\n')
+        self._insert_text("\n".join(lines) + '\n')
 
 def simple_dialog_float(title, prompt, default=1.0):
     try:

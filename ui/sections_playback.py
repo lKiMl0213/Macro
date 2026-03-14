@@ -34,4 +34,40 @@ def build_playback_section(parent, controller, icons, tooltip):
     )
     entry_repeat.grid(row=0, column=4, padx=2, pady=4)
 
-    return frame, btn_play, entry_speed, entry_repeat
+    btn_step = ctk.CTkButton(
+        row,
+        text=f"{icons['step']} Step",
+        command=controller.step_forward,
+        fg_color="#1f2937",
+        hover_color="#374151",
+        corner_radius=10,
+        height=28,
+    )
+    btn_step.grid(row=1, column=0, padx=4, pady=(2, 6), sticky="w")
+    tooltip(btn_step, "Step through macro")
+
+    btn_continue = ctk.CTkButton(
+        row,
+        text=f"{icons['continue']} Continue",
+        command=controller.continue_play,
+        fg_color="#1f2937",
+        hover_color="#374151",
+        corner_radius=10,
+        height=28,
+    )
+    btn_continue.grid(row=1, column=1, columnspan=2, padx=4, pady=(2, 6), sticky="w")
+    tooltip(btn_continue, "Continue execution")
+
+    btn_stop = ctk.CTkButton(
+        row,
+        text=f"{icons['stop']} Stop",
+        command=controller.stop_execution,
+        fg_color="#7f1d1d",
+        hover_color="#991b1b",
+        corner_radius=10,
+        height=28,
+    )
+    btn_stop.grid(row=1, column=3, columnspan=2, padx=4, pady=(2, 6), sticky="e")
+    tooltip(btn_stop, "Stop playback")
+
+    return frame, btn_play, entry_speed, entry_repeat, btn_step, btn_continue, btn_stop

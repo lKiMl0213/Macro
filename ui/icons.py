@@ -9,5 +9,7 @@ ICONS = {
     "load": "📂",
     "folder": "🗂",
     "insert": "↳",
-    "clear": "✕",
+    "clear": "✖",
+    "step": "⏭",
+    "continue": "⏩",
 }

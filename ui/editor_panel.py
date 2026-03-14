@@ -2,10 +2,18 @@ import re
 import tkinter as tk
 import customtkinter as ctk
 
+try:
+    from .minimap import MiniMap
+except Exception:
+    from minimap import MiniMap
+
 
 class EditorPanel(ctk.CTkFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, breakpoint_manager=None, on_line_selected=None, on_text_change=None, **kwargs):
         super().__init__(master, fg_color="#111827", corner_radius=12, **kwargs)
+        self._bp = breakpoint_manager
+        self._on_line_selected = on_line_selected
+        self._on_text_change = on_text_change
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -27,6 +35,8 @@ class EditorPanel(ctk.CTkFrame):
             font=("Consolas", 11),
         )
         self._line_nums.grid(row=0, column=0, sticky="ns")
+        self._line_nums.tag_configure("bp", foreground="#ef4444")
+        self._line_nums.bind("<Button-1>", self._toggle_breakpoint)
 
         self.text = tk.Text(
             inner,
@@ -66,14 +76,25 @@ class EditorPanel(ctk.CTkFrame):
         )
 
         self.text.bind("<<Modified>>", self._on_modified)
-        self.text.bind("<KeyRelease>", self._schedule_highlight)
-        self.text.bind("<ButtonRelease-1>", self._schedule_highlight)
+        self.text.bind("<KeyRelease>", lambda e: self._on_activity(e, "key"))
+        self.text.bind("<ButtonRelease-1>", lambda e: self._on_activity(e, "mouse"))
         self.text.bind("<MouseWheel>", lambda _e: self._sync_line_numbers())
         self.text.bind("<Configure>", lambda _e: self._sync_line_numbers())
         self.text.bind("<Button-3>", self._show_context_menu)
 
         self._highlight_job = None
         self._init_tags()
+
+        self.minimap = MiniMap(
+            inner,
+            get_text_fn=self.get_text,
+            yview_fn=self.text.yview,
+            scroll_to_fn=self._scroll_to_ratio,
+            width=12,
+            bg="#0b0f14",
+            highlightthickness=0,
+        )
+        self.minimap.grid(row=0, column=3, sticky="ns", padx=(6, 0))
         self._sync_line_numbers()
 
         self._menu = tk.Menu(self.text, tearoff=0, bg="#111827", fg="#e5e7eb")
@@ -86,6 +107,7 @@ class EditorPanel(ctk.CTkFrame):
         self.text.tag_configure("label", foreground="#fbbf24")
         self.text.tag_configure("path", foreground="#34d399")
         self.text.tag_configure("number", foreground="#fca5a5")
+        self.text.tag_configure("breakpoint_line", background="#3b1f1f")
         self.text.tag_configure("current_line", background="#1f2937")
 
     def _auto_scrollbar(self, scrollbar, first, last):
@@ -115,12 +137,26 @@ class EditorPanel(ctk.CTkFrame):
 
     def _sync_line_numbers(self):
         line_count = int(self.text.index("end-1c").split(".")[0])
-        lines = "\n".join(str(i) for i in range(1, line_count + 1))
+        lines = []
+        for i in range(1, line_count + 1):
+            dot = "●" if self._bp and self._bp.is_breakpoint(i) else " "
+            lines.append(f"{dot} {i}")
+        lines = "\n".join(lines)
         self._line_nums.configure(state="normal")
         self._line_nums.delete("1.0", "end")
         self._line_nums.insert("1.0", lines)
+        if self._bp:
+            for i in range(1, line_count + 1):
+                if self._bp.is_breakpoint(i):
+                    self._line_nums.tag_add("bp", f"{i}.0", f"{i}.1")
         self._line_nums.configure(state="disabled")
         self._line_nums.yview_moveto(self.text.yview()[0])
+        self.text.tag_remove("breakpoint_line", "1.0", "end")
+        if self._bp:
+            for i in range(1, line_count + 1):
+                if self._bp.is_breakpoint(i):
+                    self.text.tag_add("breakpoint_line", f"{i}.0", f"{i}.end")
+        self.minimap.refresh()
 
     def _schedule_highlight(self, _event=None):
         if self._highlight_job:
@@ -151,6 +187,10 @@ class EditorPanel(ctk.CTkFrame):
                 self.text.tag_add("path", f"{i}.{match.start()}", f"{i}.{match.end()}")
             for match in re.finditer(r"\b\d+(?:\.\d+)?(?:ms|s)?\b", line):
                 self.text.tag_add("number", f"{i}.{match.start()}", f"{i}.{match.end()}")
+        if self._on_text_change:
+            self._on_text_change()
+        self.text.tag_raise("breakpoint_line")
+        self.text.tag_raise("current_line")
 
     def _show_context_menu(self, event):
         try:
@@ -166,10 +206,25 @@ class EditorPanel(ctk.CTkFrame):
 
     def set_current_line(self, line_number):
         self.text.tag_remove("current_line", "1.0", "end")
-        self.text.tag_add("current_line", f"{line_number}.0", f"{line_number}.end")
+        if line_number and line_number > 0:
+            self.text.tag_add("current_line", f"{line_number}.0", f"{line_number}.end")
+
+    def set_line(self, line_no, text):
+        self.text.delete(f"{line_no}.0", f"{line_no}.end")
+        self.text.insert(f"{line_no}.0", text)
+        self._sync_line_numbers()
+        self._schedule_highlight()
+
+    def insert_text(self, text):
+        self.text.insert(tk.INSERT, text)
+        self._sync_line_numbers()
+        self._schedule_highlight()
 
     def get_text(self):
         return self.text.get("1.0", "end").rstrip("\n")
+
+    def get_line(self, line_no):
+        return self.text.get(f"{line_no}.0", f"{line_no}.end")
 
     def set_text(self, s):
         self.text.delete("1.0", "end")
@@ -179,3 +234,31 @@ class EditorPanel(ctk.CTkFrame):
 
     def focus_editor(self):
         self.text.focus_set()
+
+    def scroll_to_line(self, line_no):
+        self.text.mark_set("insert", f"{line_no}.0")
+        self.text.see(f"{line_no}.0")
+        self.text.tag_remove("sel", "1.0", "end")
+        self.text.tag_add("sel", f"{line_no}.0", f"{line_no}.end")
+        self._sync_line_numbers()
+
+    def _scroll_to_ratio(self, ratio):
+        self.text.yview_moveto(ratio)
+        self._line_nums.yview_moveto(ratio)
+        self._sync_line_numbers()
+
+    def _toggle_breakpoint(self, event):
+        if not self._bp:
+            return
+        index = self._line_nums.index(f"@0,{event.y}")
+        line_no = int(index.split(".")[0])
+        self._bp.toggle(line_no)
+        self._sync_line_numbers()
+        if self._on_line_selected:
+            self._on_line_selected(line_no)
+
+    def _on_activity(self, _event=None, source="key"):
+        self._schedule_highlight()
+        if self._on_line_selected:
+            idx = self.text.index("insert").split(".")[0]
+            self._on_line_selected(int(idx), source)
