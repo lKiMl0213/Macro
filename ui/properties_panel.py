@@ -3,12 +3,14 @@ import customtkinter as ctk
 
 
 class PropertiesPanel(ctk.CTkFrame):
-    def __init__(self, master, on_apply, **kwargs):
+    def __init__(self, master, on_apply, theme_manager=None, **kwargs):
         super().__init__(master, fg_color="#111827", corner_radius=12, **kwargs)
         self.on_apply = on_apply
         self._line_no = None
         self._cmd = None
         self._fields = {}
+        self._theme_manager = theme_manager
+        self._theme = None
 
         title = ctk.CTkLabel(self, text="Properties", text_color="#e5e7eb")
         title.pack(anchor="w", padx=10, pady=(8, 0))
@@ -20,6 +22,9 @@ class PropertiesPanel(ctk.CTkFrame):
             corner_radius=8, height=28
         )
         self.apply_btn.pack(anchor="e", padx=8, pady=(0, 8))
+
+        if self._theme_manager:
+            self._theme_manager.subscribe(self.apply_theme)
 
     def show_for_line(self, line_no, line_text):
         for child in self.body.winfo_children():
@@ -60,8 +65,13 @@ class PropertiesPanel(ctk.CTkFrame):
     def _field(self, label, key, value):
         row = ctk.CTkFrame(self.body, fg_color="transparent")
         row.pack(fill="x", padx=4, pady=4)
-        ctk.CTkLabel(row, text=label, text_color="#9ca3af").pack(anchor="w")
-        entry = ctk.CTkEntry(row, fg_color="#0f172a", border_color="#1f2937", corner_radius=8)
+        ctk.CTkLabel(row, text=label, text_color=self._theme["text_muted"] if self._theme else "#9ca3af").pack(anchor="w")
+        entry = ctk.CTkEntry(
+            row,
+            fg_color=self._theme["panel_alt"] if self._theme else "#0f172a",
+            border_color=self._theme["panel_border"] if self._theme else "#1f2937",
+            corner_radius=8,
+        )
         entry.insert(0, value or "")
         entry.pack(fill="x")
         self._fields[key] = entry
@@ -115,6 +125,13 @@ class PropertiesPanel(ctk.CTkFrame):
         if not parts:
             return None, []
         return parts[0].upper(), parts[1:]
+
+    def apply_theme(self, theme):
+        self._theme = theme
+        self.configure(fg_color=theme["panel"])
+        self.apply_btn.configure(fg_color=theme["button_bg"], hover_color=theme["hover"])
+        for entry in self._fields.values():
+            entry.configure(fg_color=theme["panel_alt"], border_color=theme["panel_border"])
 
     def _quote_arg(self, s):
         if s is None:

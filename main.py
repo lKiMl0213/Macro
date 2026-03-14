@@ -13,7 +13,6 @@ import customtkinter as ctk
 from ui.main_window import MainWindow
 from ui.breakpoint_manager import BreakpointManager
 from ui.step_controller import StepController
-from ui.preview_panel import PreviewPanel
 
 try:
     from pynput import mouse, keyboard
@@ -777,8 +776,6 @@ class MacroApp:
         self.breakpoints = BreakpointManager()
 
         self._build_ui()
-        self.preview = PreviewPanel(self.root)
-        self.preview.withdraw()
         self.step_controller = StepController(self.editor, self.ui.timeline, self.ui.set_status)
         self.on_editor_text_change()
 
@@ -864,7 +861,8 @@ class MacroApp:
         self.step_controller.load_from_text(text)
         commands = self._command_lines(text)
         try:
-            self.ui.timeline.refresh(commands)
+            self.ui.timeline.set_commands(commands)
+            self.ui.timeline.set_breakpoints(self.breakpoints.all())
         except Exception:
             pass
 
@@ -917,6 +915,16 @@ class MacroApp:
         except Exception:
             pass
 
+    def on_breakpoints_changed(self, bps):
+        try:
+            self.ui.timeline.set_breakpoints(bps)
+        except Exception:
+            pass
+        try:
+            self.ui.dock.set_breakpoints(bps)
+        except Exception:
+            pass
+
     def _maybe_preview(self, line_text):
         cmd, args = self._parse_line(line_text)
         if cmd not in ("IMG_CLICK", "IMG_CLICK_ANY", "IMG_WAIT"):
@@ -931,7 +939,10 @@ class MacroApp:
             params.append(f"timeout={timeout:.2f}s")
         if scale is not None:
             params.append(f"scale={scale}")
-        self.preview.show(paths, " ".join(params))
+        try:
+            self.ui.dock.show_preview(paths, " ".join(params))
+        except Exception:
+            pass
 
     def step_forward(self):
         text = self.text_get()

@@ -22,7 +22,10 @@ class StepController:
         line_no = self._lines[self._index]
         self.editor.set_current_line(line_no)
         if self.timeline:
-            self.timeline.highlight_line(line_no)
+            if hasattr(self.timeline, "set_playhead"):
+                self.timeline.set_playhead(line_no)
+            else:
+                self.timeline.highlight_line(line_no)
         return line_no
 
     def stop(self):
@@ -30,7 +33,10 @@ class StepController:
         self._index = -1
         self.editor.set_current_line(0)
         if self.timeline:
-            self.timeline.highlight_line(-1)
+            if hasattr(self.timeline, "set_playhead"):
+                self.timeline.set_playhead(None)
+            else:
+                self.timeline.highlight_line(-1)
         self.status_cb("Ready.")
 
     def continue_run(self):

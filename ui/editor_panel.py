@@ -2,6 +2,8 @@ import re
 import tkinter as tk
 import customtkinter as ctk
 
+from .layout_system import SCROLLBAR_THICK
+
 try:
     from .minimap import MiniMap
 except Exception:
@@ -9,11 +11,23 @@ except Exception:
 
 
 class EditorPanel(ctk.CTkFrame):
-    def __init__(self, master, breakpoint_manager=None, on_line_selected=None, on_text_change=None, **kwargs):
+    def __init__(
+        self,
+        master,
+        breakpoint_manager=None,
+        on_line_selected=None,
+        on_text_change=None,
+        on_breakpoint_change=None,
+        theme_manager=None,
+        **kwargs,
+    ):
         super().__init__(master, fg_color="#111827", corner_radius=12, **kwargs)
         self._bp = breakpoint_manager
         self._on_line_selected = on_line_selected
         self._on_text_change = on_text_change
+        self._on_breakpoint_change = on_breakpoint_change
+        self._theme_manager = theme_manager
+        self._theme = None
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -59,13 +73,13 @@ class EditorPanel(ctk.CTkFrame):
 
         self.vbar = ctk.CTkScrollbar(
             inner, orientation=tk.VERTICAL, command=self._yview,
-            width=12, corner_radius=8, fg_color="#0b0f14",
+            width=SCROLLBAR_THICK, corner_radius=8, fg_color="#0b0f14",
             button_color="#374151", button_hover_color="#4b5563",
         )
         self.vbar.grid(row=0, column=2, sticky="ns", padx=(6, 0))
         self.hbar = ctk.CTkScrollbar(
             inner, orientation=tk.HORIZONTAL, command=self.text.xview,
-            height=12, corner_radius=8, fg_color="#0b0f14",
+            height=SCROLLBAR_THICK, corner_radius=8, fg_color="#0b0f14",
             button_color="#374151", button_hover_color="#4b5563",
         )
         self.hbar.grid(row=1, column=1, sticky="ew", pady=(6, 0))
@@ -102,13 +116,56 @@ class EditorPanel(ctk.CTkFrame):
         self._menu.add_command(label="Paste", command=lambda: self.text.event_generate("<<Paste>>"))
         self._menu.add_command(label="Delete Line", command=self._delete_line)
 
+        if self._theme_manager:
+            self._theme_manager.subscribe(self.apply_theme)
+
     def _init_tags(self):
-        self.text.tag_configure("command", foreground="#93c5fd")
-        self.text.tag_configure("label", foreground="#fbbf24")
-        self.text.tag_configure("path", foreground="#34d399")
-        self.text.tag_configure("number", foreground="#fca5a5")
-        self.text.tag_configure("breakpoint_line", background="#3b1f1f")
-        self.text.tag_configure("current_line", background="#1f2937")
+        if self._theme:
+            self.text.tag_configure("command", foreground="#93c5fd")
+            self.text.tag_configure("label", foreground="#fbbf24")
+            self.text.tag_configure("path", foreground="#34d399")
+            self.text.tag_configure("number", foreground="#fca5a5")
+            self.text.tag_configure("breakpoint_line", background="#3b1f1f")
+            self.text.tag_configure("current_line", background=self._theme["hover"])
+        else:
+            self.text.tag_configure("command", foreground="#93c5fd")
+            self.text.tag_configure("label", foreground="#fbbf24")
+            self.text.tag_configure("path", foreground="#34d399")
+            self.text.tag_configure("number", foreground="#fca5a5")
+            self.text.tag_configure("breakpoint_line", background="#3b1f1f")
+            self.text.tag_configure("current_line", background="#1f2937")
+
+    def apply_theme(self, theme):
+        self._theme = theme
+        self.configure(fg_color=theme["panel"])
+        self._line_nums.configure(bg=theme["panel_alt"], fg=theme["text_muted"])
+        self.text.configure(
+            bg=theme["panel_alt"],
+            fg=theme["text"],
+            insertbackground=theme["text"],
+            selectbackground=theme["hover"],
+            selectforeground=theme["text"],
+            highlightbackground=theme["panel_border"],
+            highlightcolor=theme["accent"],
+        )
+        self.vbar.configure(
+            fg_color=theme["background"],
+            button_color=theme["panel_border"],
+            button_hover_color=theme["hover"],
+        )
+        self.hbar.configure(
+            fg_color=theme["background"],
+            button_color=theme["panel_border"],
+            button_hover_color=theme["hover"],
+        )
+        self.minimap.configure(bg=theme["background"])
+        try:
+            self.minimap.set_colors(theme["panel_border"], theme["accent"])
+        except Exception:
+            pass
+        self._menu.configure(bg=theme["panel"], fg=theme["text"])
+        self._init_tags()
+        self._sync_line_numbers()
 
     def _auto_scrollbar(self, scrollbar, first, last):
         try:
@@ -256,6 +313,8 @@ class EditorPanel(ctk.CTkFrame):
         self._sync_line_numbers()
         if self._on_line_selected:
             self._on_line_selected(line_no)
+        if self._on_breakpoint_change:
+            self._on_breakpoint_change(self._bp.all())
 
     def _on_activity(self, _event=None, source="key"):
         self._schedule_highlight()
