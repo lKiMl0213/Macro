@@ -3,3 +3,4 @@ pyautogui
 pillow
 opencv-python
 mss
+customtkinter
