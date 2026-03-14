@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from collections import namedtuple
 import os
+import sys
+import subprocess
 import shlex
 import time
 import threading
@@ -8,6 +10,7 @@ from threading import Event, Lock
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
+from ui.main_window import MainWindow
 
 try:
     from pynput import mouse, keyboard
@@ -770,245 +773,56 @@ class MacroApp:
         self.insert_timeout = 0.5
 
         self._build_ui()
-        self._size_to_content()
 
     def _build_ui(self):
-        bg = '#0b0f14'
-        panel = '#111827'
-        panel_2 = '#0f172a'
-        border = '#1f2937'
-        fg = '#e5e7eb'
-        muted = '#9ca3af'
-        accent = '#3b82f6'
-        accent_hover = '#2563eb'
-        danger = '#ef4444'
-        danger_hover = '#dc2626'
-        warning = '#f59e0b'
-        warning_hover = '#d97706'
-        success = '#22c55e'
-        success_hover = '#16a34a'
-        violet = '#6366f1'
-        violet_hover = '#4f46e5'
-        neutral_btn = '#1f2937'
-        neutral_btn_hover = '#374151'
-        scroll_track = '#0b0f14'
-        scroll_thumb = '#374151'
-        scroll_thumb_hover = '#4b5563'
-
-        self.root.configure(fg_color=bg)
-        self.root.option_add('*Font', ('Segoe UI', 10))
-
-        def section(parent, title):
-            frame = ctk.CTkFrame(parent, fg_color=panel, corner_radius=12)
-            label = ctk.CTkLabel(frame, text=title, text_color=fg)
-            label.pack(anchor='w', padx=10, pady=(8, 0))
-            inner = ctk.CTkFrame(frame, fg_color='transparent')
-            inner.pack(fill='x', padx=6, pady=6)
-            return frame, inner
-
-        top = ctk.CTkFrame(self.root, fg_color='transparent')
-        top.pack(fill=tk.X, padx=10, pady=(10, 6))
-
-        rec_frame, rec_row = section(top, 'Recording')
-        rec_frame.pack(side=tk.LEFT, padx=6)
-        self.btn_record = ctk.CTkButton(
-            rec_row, text='Record', command=self.start_recording,
-            fg_color=danger, hover_color=danger_hover, corner_radius=8
-        )
-        self.btn_record.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_stop = ctk.CTkButton(
-            rec_row, text='Stop', command=self.stop_recording,
-            fg_color=warning, hover_color=warning_hover, corner_radius=8
-        )
-        self.btn_stop.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_stop.configure(state='disabled')
-
-        play_frame, play_row = section(top, 'Playback')
-        play_frame.pack(side=tk.LEFT, padx=6)
-        self.btn_play = ctk.CTkButton(
-            play_row, text='Play', command=self.play,
-            fg_color=accent, hover_color=accent_hover, corner_radius=8
-        )
-        self.btn_play.grid(row=0, column=0, padx=4, pady=4)
-        ctk.CTkLabel(play_row, text='Speed', text_color=muted).grid(row=0, column=1, padx=(6, 2), pady=4)
-        self.entry_speed = ctk.CTkEntry(
-            play_row, width=60, textvariable=self.speed_var,
-            fg_color=panel_2, border_color=border, corner_radius=8
-        )
-        self.entry_speed.grid(row=0, column=2, padx=2, pady=4)
-        ctk.CTkLabel(play_row, text='Repeat', text_color=muted).grid(row=0, column=3, padx=(6, 2), pady=4)
-        self.entry_repeat = ctk.CTkEntry(
-            play_row, width=50, textvariable=self.repeat_var,
-            fg_color=panel_2, border_color=border, corner_radius=8
-        )
-        self.entry_repeat.grid(row=0, column=4, padx=2, pady=4)
-
-        file_frame, file_row = section(top, 'Files')
-        file_frame.pack(side=tk.LEFT, padx=6)
-        self.btn_save = ctk.CTkButton(
-            file_row, text='Save', command=self.save,
-            fg_color=neutral_btn, hover_color=neutral_btn_hover, corner_radius=8
-        )
-        self.btn_save.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_load = ctk.CTkButton(
-            file_row, text='Load', command=self.load,
-            fg_color=neutral_btn, hover_color=neutral_btn_hover, corner_radius=8
-        )
-        self.btn_load.pack(side=tk.LEFT, padx=4, pady=4)
-
-        tools_row = ctk.CTkFrame(self.root, fg_color='transparent')
-        tools_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-
-        img_frame, img_row = section(tools_row, 'Image')
-        img_frame.pack(side=tk.LEFT, padx=6)
-        self.btn_image = ctk.CTkButton(
-            img_row, text='Image...', command=self.select_image,
-            fg_color=success, hover_color=success_hover, corner_radius=8
-        )
-        self.btn_image.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_capture = ctk.CTkButton(
-            img_row, text='Capture...', command=self.capture_image,
-            fg_color=success, hover_color=success_hover, corner_radius=8
-        )
-        self.btn_capture.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_region = ctk.CTkButton(
-            img_row, text='Region...', command=self.select_region,
-            fg_color=success, hover_color=success_hover, corner_radius=8
-        )
-        self.btn_region.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_region_clear = ctk.CTkButton(
-            img_row, text='Clear Region', command=self.clear_region,
-            fg_color=success, hover_color=success_hover, corner_radius=8
-        )
-        self.btn_region_clear.pack(side=tk.LEFT, padx=4, pady=4)
-
-        insert_frame, insert_row = section(tools_row, 'Insert')
-        insert_frame.pack(side=tk.LEFT, padx=6)
-        self.btn_insert_region = ctk.CTkButton(
-            insert_row, text='Insert REGION', command=self.insert_region,
-            fg_color=violet, hover_color=violet_hover, corner_radius=8
-        )
-        self.btn_insert_region.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_img_click = ctk.CTkButton(
-            insert_row, text='Insert IMG_CLICK', command=self.insert_img_click,
-            fg_color=violet, hover_color=violet_hover, corner_radius=8
-        )
-        self.btn_img_click.pack(side=tk.LEFT, padx=4, pady=4)
-        self.btn_img_click_any = ctk.CTkButton(
-            insert_row, text='Insert IMG_CLICK_ANY', command=self.insert_img_click_any,
-            fg_color=violet, hover_color=violet_hover, corner_radius=8
-        )
-        self.btn_img_click_any.pack(side=tk.LEFT, padx=4, pady=4)
-
-        info_frame = ctk.CTkFrame(self.root, fg_color='transparent')
-        info_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
-        self.lbl_image = ctk.CTkLabel(info_frame, textvariable=self.image_var, text_color=muted)
-        self.lbl_image.pack(side=tk.LEFT, padx=4)
-        self.lbl_region = ctk.CTkLabel(info_frame, textvariable=self.region_var, text_color=muted)
-        self.lbl_region.pack(side=tk.LEFT, padx=12)
-
-        editor_frame = ctk.CTkFrame(self.root, fg_color=panel, corner_radius=12)
-        editor_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-        editor_frame.rowconfigure(0, weight=1)
-        editor_frame.columnconfigure(0, weight=1)
-
-        editor_inner = ctk.CTkFrame(editor_frame, fg_color='transparent')
-        editor_inner.grid(row=0, column=0, sticky='nsew', padx=8, pady=8)
-        editor_inner.rowconfigure(0, weight=1)
-        editor_inner.columnconfigure(0, weight=1)
-
-        self.txt = tk.Text(
-            editor_inner,
-            wrap=tk.NONE,
-            font=('Consolas', 11),
-            bg='#0f1115',
-            fg=fg,
-            insertbackground=fg,
-            selectbackground='#374151',
-            selectforeground='#f9fafb',
-            relief='flat',
-            highlightthickness=1,
-            highlightbackground=border,
-            highlightcolor=accent,
-        )
-        self.txt.grid(row=0, column=0, sticky='nsew')
-        self.vbar = ctk.CTkScrollbar(
-            editor_inner, orientation=tk.VERTICAL, command=self.txt.yview,
-            width=12, corner_radius=8, fg_color=scroll_track,
-            button_color=scroll_thumb, button_hover_color=scroll_thumb_hover
-        )
-        self.vbar.grid(row=0, column=1, sticky='ns', padx=(6, 0))
-        self.hbar = ctk.CTkScrollbar(
-            editor_inner, orientation=tk.HORIZONTAL, command=self.txt.xview,
-            height=12, corner_radius=8, fg_color=scroll_track,
-            button_color=scroll_thumb, button_hover_color=scroll_thumb_hover
-        )
-        self.hbar.grid(row=1, column=0, sticky='ew', pady=(6, 0))
-        self.txt.configure(
-            xscrollcommand=lambda f, l: self._auto_scrollbar(self.hbar, f, l),
-            yscrollcommand=lambda f, l: self._auto_scrollbar(self.vbar, f, l),
-        )
-
-        self.status_var = tk.StringVar(value='Ready.')
-        status = ctk.CTkLabel(self.root, textvariable=self.status_var, text_color=muted)
-        status.pack(fill=tk.X, padx=10, pady=(0, 6))
+        self.ui = MainWindow(self.root, self)
+        self.editor = self.ui.editor
 
     def set_status(self, text):
         try:
-            self.status_var.set(text)
+            self.ui.set_status(text)
         except Exception:
             pass
 
     def _hide_root(self):
         try:
-            self.root.attributes('-alpha', 0.0)
-        except Exception:
-            try:
-                self.root.withdraw()
-            except Exception:
-                pass
-
-    def _show_root(self):
-        try:
-            self.root.attributes('-alpha', 1.0)
-        except Exception:
-            try:
-                self.root.deiconify()
-            except Exception:
-                pass
-
-    def _size_to_content(self):
-        try:
-            self.root.update_idletasks()
-            w = self.root.winfo_reqwidth()
-            h = self.root.winfo_reqheight()
-            if w > 0 and h > 0:
-                self.root.minsize(w, h)
-                self.root.geometry(f"{w}x{h}")
+            self.root.withdraw()
         except Exception:
             pass
 
-    def _auto_scrollbar(self, scrollbar, first, last):
+    def _show_root(self):
         try:
-            first_f = float(first)
-            last_f = float(last)
+            self.root.deiconify()
         except Exception:
-            scrollbar.set(first, last)
-            return
-        if first_f <= 0.0 and last_f >= 1.0:
-            if scrollbar.winfo_ismapped():
-                scrollbar.grid_remove()
-        else:
-            if not scrollbar.winfo_ismapped():
-                scrollbar.grid()
-        scrollbar.set(first_f, last_f)
+            pass
+        try:
+            self.root.lift()
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _pick_region(self):
+        done = tk.BooleanVar(value=False)
+        result = {'region': None}
+
+        def run():
+            result['region'] = select_screen_region(self.root)
+            done.set(True)
+
+        self._hide_root()
+        self.root.after(80, run)
+        try:
+            self.root.wait_variable(done)
+        except Exception:
+            pass
+        self._show_root()
+        return result['region']
 
     def text_get(self):
-        return self.txt.get('1.0', tk.END).rstrip('\n')
+        return self.editor.get_text()
 
     def text_set(self, s):
-        self.txt.delete('1.0', tk.END)
-        self.txt.insert(tk.END, s)
+        self.editor.set_text(s)
 
     def start_recording(self):
         txt = self.text_get()
@@ -1026,15 +840,13 @@ class MacroApp:
                 self.set_status('Starting recording (appending to events).')
         try:
             self.recorder.start()
-            self.btn_record.configure(state='disabled')
-            self.btn_stop.configure(state='normal')
+            self.ui.set_recording_state(True)
         except Exception as e:
             messagebox.showerror('Error', f'Could not start recorder: {e}')
 
     def stop_recording(self):
         self.recorder.stop()
-        self.btn_record.configure(state='normal')
-        self.btn_stop.configure(state='disabled')
+        self.ui.set_recording_state(False)
         self.text_set(ScriptParser.events_to_script(self.store.snapshot()))
         self.set_status(f'Stopped. Events recorded: {len(self.store)}')
 
@@ -1107,6 +919,19 @@ class MacroApp:
         self.store.clear(); self.store.extend(evs)
         self.set_status(f'Loaded {fname} (events synced)')
 
+    def open_capture_folder(self):
+        folder = os.path.join(os.getcwd(), 'captures')
+        os.makedirs(folder, exist_ok=True)
+        try:
+            if os.name == 'nt':
+                os.startfile(folder)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', folder])
+            else:
+                subprocess.Popen(['xdg-open', folder])
+        except Exception as e:
+            messagebox.showerror('Error', f'Could not open folder: {e}')
+
     def refresh(self):
         self.text_set(ScriptParser.events_to_script(self.store.snapshot()))
         self.set_status('Script refreshed from recorded events')
@@ -1126,12 +951,8 @@ class MacroApp:
         if not pyautogui and mss is None:
             messagebox.showerror('Image', 'pyautogui or mss is required for screenshots.')
             return
-        self._hide_root()
         self.root.update_idletasks()
-        try:
-            region = select_screen_region(self.root)
-        finally:
-            self._show_root()
+        region = self._pick_region()
         if not region:
             self.set_status('Capture cancelled.')
             return
@@ -1168,12 +989,8 @@ class MacroApp:
         self.image_var.set(f'Image: {fname}')
 
     def select_region(self):
-        self._hide_root()
         self.root.update_idletasks()
-        try:
-            region = select_screen_region(self.root)
-        finally:
-            self._show_root()
+        region = self._pick_region()
         if region:
             self.search_region = region
             x, y, w, h = region

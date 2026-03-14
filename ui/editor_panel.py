@@ -1,0 +1,181 @@
+import re
+import tkinter as tk
+import customtkinter as ctk
+
+
+class EditorPanel(ctk.CTkFrame):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, fg_color="#111827", corner_radius=12, **kwargs)
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        inner = ctk.CTkFrame(self, fg_color="transparent")
+        inner.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        inner.rowconfigure(0, weight=1)
+        inner.columnconfigure(1, weight=1)
+
+        self._line_nums = tk.Text(
+            inner,
+            width=4,
+            padx=6,
+            pady=6,
+            bg="#0f1115",
+            fg="#6b7280",
+            relief="flat",
+            state="disabled",
+            takefocus=0,
+            font=("Consolas", 11),
+        )
+        self._line_nums.grid(row=0, column=0, sticky="ns")
+
+        self.text = tk.Text(
+            inner,
+            wrap=tk.NONE,
+            font=("Consolas", 11),
+            bg="#0f1115",
+            fg="#e5e7eb",
+            insertbackground="#e5e7eb",
+            selectbackground="#374151",
+            selectforeground="#f9fafb",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#1f2937",
+            highlightcolor="#3b82f6",
+            padx=8,
+            pady=6,
+            undo=True,
+        )
+        self.text.grid(row=0, column=1, sticky="nsew")
+
+        self.vbar = ctk.CTkScrollbar(
+            inner, orientation=tk.VERTICAL, command=self._yview,
+            width=12, corner_radius=8, fg_color="#0b0f14",
+            button_color="#374151", button_hover_color="#4b5563",
+        )
+        self.vbar.grid(row=0, column=2, sticky="ns", padx=(6, 0))
+        self.hbar = ctk.CTkScrollbar(
+            inner, orientation=tk.HORIZONTAL, command=self.text.xview,
+            height=12, corner_radius=8, fg_color="#0b0f14",
+            button_color="#374151", button_hover_color="#4b5563",
+        )
+        self.hbar.grid(row=1, column=1, sticky="ew", pady=(6, 0))
+
+        self.text.configure(
+            yscrollcommand=lambda f, l: self._auto_scrollbar(self.vbar, f, l),
+            xscrollcommand=lambda f, l: self._auto_scrollbar(self.hbar, f, l),
+        )
+
+        self.text.bind("<<Modified>>", self._on_modified)
+        self.text.bind("<KeyRelease>", self._schedule_highlight)
+        self.text.bind("<ButtonRelease-1>", self._schedule_highlight)
+        self.text.bind("<MouseWheel>", lambda _e: self._sync_line_numbers())
+        self.text.bind("<Configure>", lambda _e: self._sync_line_numbers())
+        self.text.bind("<Button-3>", self._show_context_menu)
+
+        self._highlight_job = None
+        self._init_tags()
+        self._sync_line_numbers()
+
+        self._menu = tk.Menu(self.text, tearoff=0, bg="#111827", fg="#e5e7eb")
+        self._menu.add_command(label="Copy", command=lambda: self.text.event_generate("<<Copy>>"))
+        self._menu.add_command(label="Paste", command=lambda: self.text.event_generate("<<Paste>>"))
+        self._menu.add_command(label="Delete Line", command=self._delete_line)
+
+    def _init_tags(self):
+        self.text.tag_configure("command", foreground="#93c5fd")
+        self.text.tag_configure("label", foreground="#fbbf24")
+        self.text.tag_configure("path", foreground="#34d399")
+        self.text.tag_configure("number", foreground="#fca5a5")
+        self.text.tag_configure("current_line", background="#1f2937")
+
+    def _auto_scrollbar(self, scrollbar, first, last):
+        try:
+            first_f = float(first)
+            last_f = float(last)
+        except Exception:
+            scrollbar.set(first, last)
+            return
+        if first_f <= 0.0 and last_f >= 1.0:
+            if scrollbar.winfo_ismapped():
+                scrollbar.grid_remove()
+        else:
+            if not scrollbar.winfo_ismapped():
+                scrollbar.grid()
+        scrollbar.set(first_f, last_f)
+
+    def _yview(self, *args):
+        self.text.yview(*args)
+        self._line_nums.yview(*args)
+
+    def _on_modified(self, _event=None):
+        if self.text.edit_modified():
+            self.text.edit_modified(False)
+            self._sync_line_numbers()
+            self._schedule_highlight()
+
+    def _sync_line_numbers(self):
+        line_count = int(self.text.index("end-1c").split(".")[0])
+        lines = "\n".join(str(i) for i in range(1, line_count + 1))
+        self._line_nums.configure(state="normal")
+        self._line_nums.delete("1.0", "end")
+        self._line_nums.insert("1.0", lines)
+        self._line_nums.configure(state="disabled")
+        self._line_nums.yview_moveto(self.text.yview()[0])
+
+    def _schedule_highlight(self, _event=None):
+        if self._highlight_job:
+            try:
+                self.after_cancel(self._highlight_job)
+            except Exception:
+                pass
+        self._highlight_job = self.after(80, self._highlight)
+
+    def _highlight(self):
+        self._highlight_job = None
+        for tag in ("command", "label", "path", "number"):
+            self.text.tag_remove(tag, "1.0", "end")
+        content = self.text.get("1.0", "end-1c")
+        for i, line in enumerate(content.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            leading = len(line) - len(line.lstrip())
+            if stripped.upper().startswith("LABEL"):
+                self.text.tag_add("label", f"{i}.0", f"{i}.end")
+            parts = stripped.split()
+            if parts:
+                cmd_len = len(parts[0])
+                start_col = leading
+                self.text.tag_add("command", f"{i}.{start_col}", f"{i}.{start_col + cmd_len}")
+            for match in re.finditer(r"([A-Za-z]:[\\/][^\s]+|\S+\.png|\S+\.jpg|\S+\.jpeg|\S+\.bmp|\S+\.gif)", line):
+                self.text.tag_add("path", f"{i}.{match.start()}", f"{i}.{match.end()}")
+            for match in re.finditer(r"\b\d+(?:\.\d+)?(?:ms|s)?\b", line):
+                self.text.tag_add("number", f"{i}.{match.start()}", f"{i}.{match.end()}")
+
+    def _show_context_menu(self, event):
+        try:
+            self._menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._menu.grab_release()
+
+    def _delete_line(self):
+        idx = self.text.index("insert").split(".")[0]
+        self.text.delete(f"{idx}.0", f"{idx}.end+1c")
+        self._sync_line_numbers()
+        self._schedule_highlight()
+
+    def set_current_line(self, line_number):
+        self.text.tag_remove("current_line", "1.0", "end")
+        self.text.tag_add("current_line", f"{line_number}.0", f"{line_number}.end")
+
+    def get_text(self):
+        return self.text.get("1.0", "end").rstrip("\n")
+
+    def set_text(self, s):
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", s)
+        self._sync_line_numbers()
+        self._schedule_highlight()
+
+    def focus_editor(self):
+        self.text.focus_set()
