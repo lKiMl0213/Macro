@@ -12,8 +12,8 @@ class PropertiesPanel(ctk.CTkFrame):
         self._theme_manager = theme_manager
         self._theme = None
 
-        title = ctk.CTkLabel(self, text="Properties", text_color="#e5e7eb")
-        title.pack(anchor="w", padx=10, pady=(8, 0))
+        self.title = ctk.CTkLabel(self, text="Properties", text_color="#e5e7eb")
+        self.title.pack(anchor="w", padx=10, pady=(8, 0))
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True, padx=6, pady=6)
         self.apply_btn = ctk.CTkButton(
@@ -130,6 +130,7 @@ class PropertiesPanel(ctk.CTkFrame):
         self._theme = theme
         self.configure(fg_color=theme["panel"])
         self.apply_btn.configure(fg_color=theme["button_bg"], hover_color=theme["hover"])
+        self.title.configure(text_color=theme["text"])
         for entry in self._fields.values():
             entry.configure(fg_color=theme["panel_alt"], border_color=theme["panel_border"])
 

@@ -1,0 +1,28 @@
+LABEL start
+REGION 2589 112 84 80
+IMG_WAIT C:\Users\david\Desktop\macro\captures\capture_20260317_182254_001.png confidence=0.9 timeout=0.5s
+IF_FOUND sword
+
+IMG_WAIT C:\Users\david\Desktop\macro\captures\capture_20260317_182312_001.png confidence=0.9 timeout=0.5s
+IF_FOUND mage
+
+IMG_WAIT C:\Users\david\Desktop\macro\captures\capture_20260317_182333_001.png confidence=0.9 timeout=0.5s
+IF_FOUND arch
+
+LABEL sword
+CLICK left 2680 601
+CLICK left 3641 87
+WAIT 100
+GOTO start
+
+LABEL arch
+CLICK left 2750 602
+CLICK left 3721 89
+WAIT 100
+GOTO start
+
+LABEL mage
+CLICK left 2837 604
+CLICK left 3794 89
+WAIT 100
+GOTO start

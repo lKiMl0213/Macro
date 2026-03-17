@@ -29,12 +29,17 @@ class MainWindow:
         sprite_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sprite")
         sprite_path = os.path.join(sprite_dir, "iconpack.png")
         if not os.path.exists(sprite_path):
-            alt = os.path.join(sprite_dir, "iconpack-removebg-preview.png")
-            if os.path.exists(alt):
-                sprite_path = alt
+            sprite_path = None
         icon_offset_x = 0
         icon_offset_y = 0
-        return IconEngine(sprite_path, columns=6, rows=3, offset_x=icon_offset_x, offset_y=icon_offset_y)
+        return IconEngine(
+            sprite_path=sprite_path,
+            columns=6,
+            rows=3,
+            offset_x=icon_offset_x,
+            offset_y=icon_offset_y,
+            icon_dir=sprite_dir,
+        )
 
     def _build(self):
         self.root.title("Macro Recorder")

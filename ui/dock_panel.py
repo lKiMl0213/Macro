@@ -21,7 +21,7 @@ class DockPanel(ctk.CTkFrame):
         self.tab_breakpoints = self.tabs.add("Breakpoints")
         self.tab_console = self.tabs.add("Console")
 
-        self.properties = PropertiesPanel(self.tab_properties, on_apply=on_properties_apply)
+        self.properties = PropertiesPanel(self.tab_properties, on_apply=on_properties_apply, theme_manager=theme_manager)
         self.properties.pack(fill="both", expand=True)
 
         self._build_preview()
