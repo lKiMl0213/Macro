@@ -42,6 +42,7 @@ env/
 # Project specific
 captures/
 idle.txt
+kronos.txt
 *.png
 .env
 .env.local
